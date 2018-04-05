@@ -39,6 +39,7 @@ use super::DEFAULT_EXONUM_LISTEN_PORT;
 use super::keys;
 
 const DATABASE_PATH: &str = "DATABASE_PATH";
+const AUXILIARY_DATABASE_PATH: &str = "AUXILIARY_DATABASE_PATH";
 const OUTPUT_DIR: &str = "OUTPUT_DIR";
 const PEER_ADDRESS: &str = "PEER_ADDRESS";
 
@@ -55,6 +56,13 @@ impl Run {
     pub fn db_helper(ctx: &Context, options: &DbOptions) -> Box<Database> {
         let path = ctx.arg::<String>(DATABASE_PATH)
             .expect(&format!("{} not found.", DATABASE_PATH));
+        Box::new(RocksDB::open(Path::new(&path), options).unwrap())
+    }
+
+    /// Returns created auxiliary database instance.
+    pub fn auxiliary_db_helper(ctx: &Context, options: &DbOptions) -> Box<Database> {
+        let path = ctx.arg::<String>(AUXILIARY_DATABASE_PATH)
+            .expect(&format!("{} not found.", AUXILIARY_DATABASE_PATH));
         Box::new(RocksDB::open(Path::new(&path), options).unwrap())
     }
 

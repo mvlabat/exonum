@@ -49,13 +49,13 @@ use mount::Mount;
 
 use crypto::{self, CryptoHash, Hash, PublicKey, SecretKey};
 use messages::{CONSENSUS as CORE_SERVICE, Connect, Precommit, RawMessage};
-use storage::{Database, Error, Fork, Patch, Snapshot};
+use storage::{Database, DbOptions, Error, Fork, Patch, RocksDB, Snapshot};
 use helpers::{Height, Round, ValidatorId};
 use node::ApiSender;
 use encoding::Error as MessageError;
 
 pub use self::block::{Block, BlockProof, SCHEMA_MAJOR_VERSION};
-pub use self::schema::{Schema, TxLocation};
+pub use self::schema::{ServiceSchema, Schema, TxLocation};
 pub use self::genesis::GenesisConfig;
 pub use self::config::{ConsensusConfig, StoredConfiguration, TimeoutAdjusterConfig, ValidatorKeys};
 pub use self::service::{ApiContext, Service, ServiceContext, SharedNodeState};
@@ -77,7 +77,8 @@ pub mod config;
 /// Only blockchains with the identical set of services and genesis block can be combined
 /// into the single network.
 pub struct Blockchain {
-    db: Arc<Database>,
+    blockchain_db: Arc<Database>,
+    auxiliary_db: Arc<Database>,
     service_map: Arc<VecMap<Box<Service>>>,
     service_keypair: (PublicKey, SecretKey),
     api_sender: ApiSender,
@@ -86,12 +87,15 @@ pub struct Blockchain {
 impl Blockchain {
     /// Constructs a blockchain for the given `storage` and list of `services`.
     pub fn new<D: Into<Arc<Database>>>(
-        storage: D,
+        blockchain_storage: D,
+        auxiliary_storage: D,
         services: Vec<Box<Service>>,
         service_public_key: PublicKey,
         service_secret_key: SecretKey,
         api_sender: ApiSender,
     ) -> Blockchain {
+        use std::path::Path;
+
         let mut service_map = VecMap::new();
         for service in services {
             let id = service.service_id() as usize;
@@ -105,7 +109,8 @@ impl Blockchain {
         }
 
         Blockchain {
-            db: storage.into(),
+            blockchain_db: blockchain_storage.into(),
+            auxiliary_db: auxiliary_storage.into(),
             service_map: Arc::new(service_map),
             service_keypair: (service_public_key, service_secret_key),
             api_sender,
@@ -128,13 +133,13 @@ impl Blockchain {
 
     /// Creates a readonly snapshot of the current storage state.
     pub fn snapshot(&self) -> Box<Snapshot> {
-        self.db.snapshot()
+        self.blockchain_db.snapshot()
     }
 
     /// Creates snapshot of the current storage state that can be later committed into storage
     /// via `merge` method.
     pub fn fork(&self) -> Fork {
-        self.db.fork()
+        self.blockchain_db.fork()
     }
 
     /// Tries to create a `Transaction` object from the given raw message.
@@ -154,7 +159,7 @@ impl Blockchain {
     /// Commits changes from the patch to the blockchain storage.
     /// See [`Fork`](../storage/struct.Fork.html) for details.
     pub fn merge(&mut self, patch: Patch) -> Result<(), Error> {
-        self.db.merge(patch)
+        self.blockchain_db.merge(patch)
     }
 
     /// Returns the hash of latest committed block.
@@ -418,7 +423,7 @@ impl Blockchain {
     {
         let patch = {
             let mut fork = {
-                let mut fork = self.db.fork();
+                let mut fork = self.blockchain_db.fork();
                 fork.merge(patch.clone()); // FIXME: avoid cloning here
                 fork
             };
@@ -485,23 +490,23 @@ impl Blockchain {
 
     /// Saves peer to the peers cache
     pub fn save_peer(&mut self, pubkey: &PublicKey, peer: Connect) {
-        let mut fork = self.fork();
+        let mut fork = self.auxiliary_db.fork();
 
         {
-            let mut schema = Schema::new(&mut fork);
+            let mut schema = ServiceSchema::new(&mut fork);
             schema.peers_cache_mut().put(pubkey, peer);
         }
 
-        self.merge(fork.into_patch())
+        self.auxiliary_db.merge_sync(fork.into_patch())
             .expect("Unable to save peer to the peers cache");
     }
 
     /// Removes peer from the peers cache
     pub fn remove_peer_with_addr(&mut self, addr: &SocketAddr) {
-        let mut fork = self.fork();
+        let mut fork = self.auxiliary_db.fork();
 
         {
-            let mut schema = Schema::new(&mut fork);
+            let mut schema = ServiceSchema::new(&mut fork);
             let mut peers = schema.peers_cache_mut();
             let peer = peers.iter().find(|&(_, ref v)| v.addr() == *addr);
             if let Some(pubkey) = peer.map(|(k, _)| k) {
@@ -509,13 +514,13 @@ impl Blockchain {
             }
         }
 
-        self.merge(fork.into_patch())
+        self.auxiliary_db.merge_sync(fork.into_patch())
             .expect("Unable to remove peer from the peers cache");
     }
 
     /// Recover cached peers if any.
     pub fn get_saved_peers(&self) -> HashMap<PublicKey, Connect> {
-        let schema = Schema::new(self.snapshot());
+        let schema = ServiceSchema::new(self.auxiliary_db.snapshot());
         let peers_cache = schema.peers_cache();
         let it = peers_cache.iter().map(|(k, v)| (k, v.clone()));
         it.collect()
@@ -554,7 +559,8 @@ impl fmt::Debug for Blockchain {
 impl Clone for Blockchain {
     fn clone(&self) -> Blockchain {
         Blockchain {
-            db: Arc::clone(&self.db),
+            blockchain_db: Arc::clone(&self.blockchain_db),
+            auxiliary_db: Arc::clone(&self.auxiliary_db),
             service_map: Arc::clone(&self.service_map),
             api_sender: self.api_sender.clone(),
             service_keypair: self.service_keypair.clone(),

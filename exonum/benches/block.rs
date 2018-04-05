@@ -37,11 +37,12 @@ mod tests {
     const TIMESTAMPING_SERVICE_ID: u16 = 1;
     const CRYPTOCURRENCY_SERVICE_ID: u16 = 255;
 
-    fn create_blockchain(db: Box<Database>, services: Vec<Box<Service>>) -> Blockchain {
+    fn create_blockchain(db: Box<Database>, auxiliary_db: Box<Database>, services: Vec<Box<Service>>) -> Blockchain {
         let dummy_channel = mpsc::channel(1);
         let dummy_keypair = (PublicKey::zero(), SecretKey::zero());
         Blockchain::new(
             db,
+            auxiliary_db,
             services,
             dummy_keypair.0,
             dummy_keypair.1,
@@ -55,7 +56,7 @@ mod tests {
             .1
     }
 
-    fn execute_timestamping(db: Box<Database>, b: &mut Bencher) {
+    fn execute_timestamping(db: Box<Database>, db_auxiliary: Box<Database>, b: &mut Bencher) {
         struct Timestamping;
 
         impl Service for Timestamping {
@@ -112,7 +113,7 @@ mod tests {
             blockchain.merge(fork.into_patch()).unwrap();
             txs
         }
-        let mut blockchain = create_blockchain(db, vec![Box::new(Timestamping)]);
+        let mut blockchain = create_blockchain(db, db_auxiliary, vec![Box::new(Timestamping)]);
         for i in 0..100 {
             let txs = prepare_txs(&mut blockchain, i, 1000);
             let patch = execute_block(&blockchain, i, &txs);
@@ -124,7 +125,7 @@ mod tests {
         b.iter(|| execute_block(&blockchain, 100, &txs));
     }
 
-    fn execute_cryptocurrency(db: Box<Database>, b: &mut Bencher) {
+    fn execute_cryptocurrency(db: Box<Database>, db_auxiliary: Box<Database>, b: &mut Bencher) {
         struct Cryptocurrency;
 
         impl Service for Cryptocurrency {
@@ -195,7 +196,7 @@ mod tests {
             txs
         }
 
-        let mut blockchain = create_blockchain(db, vec![Box::new(Cryptocurrency)]);
+        let mut blockchain = create_blockchain(db, db_auxiliary, vec![Box::new(Cryptocurrency)]);
         let mut keys = Vec::new();
 
         for _ in 0..10_000 {
@@ -221,14 +222,18 @@ mod tests {
     #[bench]
     fn bench_execute_block_timestamping_rocksdb(b: &mut Bencher) {
         let tempdir = TempDir::new("exonum").unwrap();
+        let tempdir_auxiliary = TempDir::new("exonum_auxiliary").unwrap();
         let db = create_rocksdb(&tempdir);
-        execute_timestamping(db, b)
+        let db_auxiliary = create_rocksdb(&tempdir);
+        execute_timestamping(db, db_auxiliary, b)
     }
 
     #[bench]
     fn bench_execute_block_cryptocurrency_rocksdb(b: &mut Bencher) {
         let tempdir = TempDir::new("exonum").unwrap();
+        let tempdir_auxiliary = TempDir::new("exonum_auxiliary").unwrap();
         let db = create_rocksdb(&tempdir);
-        execute_cryptocurrency(db, b)
+        let db_auxiliary = create_rocksdb(&tempdir);
+        execute_cryptocurrency(db, db_auxiliary, b)
     }
 }

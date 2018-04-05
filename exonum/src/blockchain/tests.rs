@@ -379,6 +379,7 @@ mod memorydb_tests {
         let api_channel = mpsc::channel(1);
         Blockchain::new(
             MemoryDB::new(),
+            MemoryDB::new(),
             vec![Box::new(super::TestService) as Box<Service>],
             service_keypair.0,
             service_keypair.1,
@@ -418,12 +419,14 @@ mod rocksdb_tests {
         Box::new(RocksDB::open(path, &opts).unwrap())
     }
 
-    fn create_blockchain(path: &Path) -> Blockchain {
+    fn create_blockchain(path: &Path, auxiliary_path: &Path) -> Blockchain {
         let db = create_database(path);
+        let auxiliary_db = create_database(auxiliary_path);
         let service_keypair = gen_keypair();
         let api_channel = mpsc::channel(1);
         Blockchain::new(
             db,
+            auxiliary_db,
             vec![Box::new(super::TestService) as Box<Service>],
             service_keypair.0,
             service_keypair.1,
@@ -434,8 +437,10 @@ mod rocksdb_tests {
     #[test]
     fn test_handling_tx_panic() {
         let dir = TempDir::new(super::gen_tempdir_name().as_str()).unwrap();
+        let auxiliary_dir = TempDir::new(super::gen_tempdir_name().as_str()).unwrap();
         let path = dir.path();
-        let mut blockchain = create_blockchain(path);
+        let auxiliary_path = auxiliary_dir.path();
+        let mut blockchain = create_blockchain(path, auxiliary_path);
         super::handling_tx_panic(&mut blockchain);
     }
 
@@ -443,8 +448,10 @@ mod rocksdb_tests {
     #[should_panic]
     fn test_handling_tx_panic_storage_error() {
         let dir = TempDir::new(super::gen_tempdir_name().as_str()).unwrap();
+        let auxiliary_dir = TempDir::new(super::gen_tempdir_name().as_str()).unwrap();
         let path = dir.path();
-        let mut blockchain = create_blockchain(path);
+        let auxiliary_path = auxiliary_dir.path();
+        let mut blockchain = create_blockchain(path, auxiliary_path);
         super::handling_tx_panic_storage_error(&mut blockchain);
     }
 }

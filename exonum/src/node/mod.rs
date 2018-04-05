@@ -44,7 +44,7 @@ use events::{HandlerPart, InternalEvent, InternalPart, InternalRequest, NetworkC
              NetworkEvent, NetworkPart, NetworkRequest, SyncSender, TimeoutRequest};
 use events::error::{into_other, log_error, other_error, LogError};
 use helpers::{user_agent, Height, Milliseconds, Round, ValidatorId};
-use storage::{Database, DbOptions};
+use storage::{Database, DbOptions, RocksDB};
 
 pub use self::state::{RequestData, State, ValidatorState};
 pub use self::whitelist::Whitelist;
@@ -773,6 +773,7 @@ impl Node {
     /// Creates node for the given services and node configuration.
     pub fn new<D: Into<Arc<Database>>>(
         db: D,
+        auxiliary_db: D,
         services: Vec<Box<Service>>,
         node_cfg: NodeConfig,
     ) -> Self {
@@ -790,6 +791,7 @@ impl Node {
         let channel = NodeChannel::new(&node_cfg.mempool.events_pool_capacity);
         let mut blockchain = Blockchain::new(
             db,
+            auxiliary_db,
             services,
             node_cfg.service_public_key,
             node_cfg.service_secret_key.clone(),

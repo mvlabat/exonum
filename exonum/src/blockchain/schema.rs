@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use crypto::{CryptoHash, Hash, PublicKey};
+use helpers::{Height, Round};
 use messages::{Connect, Precommit, RawMessage};
 use storage::{Entry, Fork, KeySetIndex, ListIndex, MapIndex, MapProof, ProofListIndex,
               ProofMapIndex, Snapshot};
-use helpers::{Height, Round};
-use super::{Block, BlockProof, Blockchain, TransactionResult};
+use super::{Block, Blockchain, BlockProof, TransactionResult};
 use super::config::StoredConfiguration;
 
 /// Defines `&str` constants with given name and value.
@@ -519,5 +519,30 @@ impl<'a> Schema<&'a mut Fork> {
         } else {
             Err(())
         }
+    }
+}
+
+/// Idk.
+#[derive(Debug)]
+pub struct ServiceSchema<T> {
+    view: T,
+}
+
+impl<T> ServiceSchema<T> where
+    T: AsRef<Snapshot>
+{
+    /// Constructs information schema for the given `snapshot`.
+    pub fn new(snapshot: T) -> ServiceSchema<T> {
+        ServiceSchema { view: snapshot }
+    }
+
+    pub(crate) fn peers_cache(&self) -> MapIndex<&T, PublicKey, Connect> {
+        MapIndex::new(PEERS_CACHE, &self.view)
+    }
+}
+
+impl<'a> ServiceSchema<&'a mut Fork> {
+    pub(crate) fn peers_cache_mut(&mut self) -> MapIndex<&mut Fork, PublicKey, Connect> {
+        MapIndex::new(PEERS_CACHE, self.view)
     }
 }
